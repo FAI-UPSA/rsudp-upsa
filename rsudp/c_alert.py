@@ -7,6 +7,9 @@ from rsudp import COLOR, helpers
 from rsudp.test import TEST
 import numpy as np
 
+# custom
+import requests
+
 # set the terminal text color to green
 COLOR['current'] = COLOR['green']
 
@@ -233,6 +236,40 @@ class Alert(rs.ConsumerThread):
 					int(self.sta * self.sps), int(self.lta * self.sps))
 
 
+	# custom
+	# TODO: create new module
+	def _send_alert_to_proxy(self):
+		try:
+			alert_data = {
+				"fechaHoraInicio": self.alarm.strftime('%Y-%m-%d %H:%M:%S.%f')[:22],
+				"canal": self.cha,
+				"umbral": self.thresh,
+				"unidad": self.units,
+				"estacion": "R70F3"
+			}
+			response = requests.post('http://localhost:5000/api/alertas/create', json=alert_data)  # Cambiar a puerto 5000
+			response.raise_for_status()
+			return response.text
+		except requests.exceptions.HTTPError as http_err:
+			return f'Error al enviar alerta al proxy: {http_err}'
+		except Exception as err:
+			return f'Error al enviar alerta al proxy: {err}'
+
+	# custom
+	def _update_alert_to_proxy(self, fechahorafin):
+		try:
+			alert_data = {
+				"fechaHoraFin": fechahorafin,
+				"estacion": "R70F3"
+			}
+			response = requests.post('http://localhost:5000/api/alertas/updatelast', json=alert_data)  # Cambiar a puerto 5000
+			response.raise_for_status()
+			return response.text
+		except requests.exceptions.HTTPError as http_err:
+			return f'Error al enviar actualizacion alerta al proxy: {http_err}'
+		except Exception as err:
+			return f'Error al enviar actualizacion alerta al proxy: {err}'
+
 	def _is_trigger(self):
 		'''
 		Figures out it there's a trigger active.
@@ -244,11 +281,20 @@ class Alert(rs.ConsumerThread):
 										trigger_onset(self.stalta, self.thresh,
 										self.reset)[-1][0] * self.stream[0].stats.delta))
 				self.exceed = True	# the state machine; this one should not be touched from the outside, otherwise bad things will happen
+
+				# custom
+				response = self._send_alert_to_proxy()
+				printM(response, self.sender)
+
 				print()
 				printM('Trigger threshold of %s exceeded at %s'
 						% (self.thresh, self.alarm.strftime('%Y-%m-%d %H:%M:%S.%f')[:22]), self.sender)
 				printM('Trigger will reset when STA/LTA goes below %s...' % self.reset, sender=self.sender)
+
+
+
 				COLOR['current'] = COLOR['purple']
+
 				if self.testing:
 					TEST['c_alerton'][1] = True
 			else:
@@ -267,6 +313,11 @@ class Alert(rs.ConsumerThread):
 					printM('Earthquake trigger reset and active again at %s' % (
 							self.alarm_reset.strftime('%Y-%m-%d %H:%M:%S.%f')[:22]),
 							self.sender)
+
+					# custom
+					response = self._update_alert_to_proxy(self.alarm_reset.strftime('%Y-%m-%d %H:%M:%S.%f')[:22])
+					printM(response, self.sender)
+
 					self.maxstalta = 0
 					COLOR['current'] = COLOR['green']
 				if self.testing:
